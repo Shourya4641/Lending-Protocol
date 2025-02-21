@@ -73,6 +73,7 @@ contract DSCEngine is ReentrancyGuard {
     //////////////////////////// EVENTS ///////////////////////////////
 
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed user, address indexed token, uint256 indexed amount);
 
     //////////////////////////// MODIFIERS ////////////////////////////
 
@@ -107,7 +108,20 @@ contract DSCEngine is ReentrancyGuard {
 
     //////////////////////////// EXTERNAL FUNCTIONS /////////////////////////////
 
-    function depositCollateralAndMintDsc() external {}
+    /**
+     * @param tokenCollateralAddress The address of the token to deposit as collateral
+     * @param collateralAmount The amount of collateral to deposit
+     * @param amountDscToMint The amount of DSC to mint
+     * @notice this function will deposit collateral and mint DSC in one transaction
+     */
+    function depositCollateralAndMintDsc(
+        address tokenCollateralAddress,
+        uint256 collateralAmount,
+        uint256 amountDscToMint
+    ) external {
+        depositCollateral(tokenCollateralAddress, collateralAmount);
+        mintDsc(amountDscToMint);
+    }
 
     /**
      * @notice follows CEI
@@ -115,7 +129,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param collateralAmount The amount of collateral to deposit
      */
     function depositCollateral(address tokenCollateralAddress, uint256 collateralAmount)
-        external
+        public
         moreThanZero(collateralAmount)
         isAllowedTokens(tokenCollateralAddress)
         nonReentrant
@@ -128,9 +142,36 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function redeemCollateralForDsc() external {}
+    /**
+     * @param tokenCollateralAddress The collateral address to redeem
+     * @param collateralAmount The amount of collateral to redeem
+     * @param amountDscToBurn The amount of DSC to burn
+     * @notice this function will redeem collateral and burn DSC in one transaction
+     */
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 collateralAmount, uint256 amountDscToBurn)
+        external
+    {
+        burnDsc(amountDscToBurn);
+        redeemCollateral(tokenCollateralAddress, collateralAmount);
+        // redeemCollateral checks the health factor...
+    }
 
-    function redeemCollateral() external {}
+    function redeemCollateral(address tokenCollateralAddress, uint256 collateralAmount)
+        public
+        moreThanZero(collateralAmount)
+        nonReentrant
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] += collateralAmount;
+        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, collateralAmount);
+
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, collateralAmount);
+
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     /**
      * @notice follows CEI
@@ -138,7 +179,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountDscToMint The amount of DecentralizedStableCoin to mint
      *
      */
-    function mintDsc(uint256 amountDscToMint) external moreThanZero(amountDscToMint) nonReentrant {
+    function mintDsc(uint256 amountDscToMint) public moreThanZero(amountDscToMint) nonReentrant {
         s_DSCMinted[msg.sender] += amountDscToMint;
 
         // if minted token value is more than the collateral then the process should be reverted
@@ -150,7 +191,16 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function burnDsc() external {}
+    function burnDsc(uint256 amount) public moreThanZero(amount) nonReentrant {
+        s_DSCMinted[msg.sender] -= amount;
+
+        bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        i_dsc.burn(amount);
+        _revertIfHealthFactorIsBroken(msg.sender); // may not reach here!
+    }
 
     function liquidate() external {}
 
