@@ -70,7 +70,7 @@ contract DSCEngine is ReentrancyGuard {
     uint256 private constant LIQUIDATION_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
     uint256 private constant MIN_HEALTH_FACTOR = 1e18;
-    uint256 private constant LIQUIDATION_BONUS = 10; // 10% liquidation bonus to the liquidator
+    uint256 private constant LIQUIDATION_BONUS = 10; 
 
     /// @dev Mapping of token address to price feed address
     mapping(address token => address priceFeed) private s_priceFeeds;
@@ -174,7 +174,7 @@ contract DSCEngine is ReentrancyGuard {
      */
     function burnDsc(uint256 amount) public moreThanZero(amount) nonReentrant {
         _burnDsc(msg.sender, msg.sender, amount);
-        _revertIfHealthFactorIsBroken(msg.sender); // may not reach here!
+        _revertIfHealthFactorIsBroken(msg.sender); 
     }
 
     /**
@@ -191,18 +191,13 @@ contract DSCEngine is ReentrancyGuard {
         moreThanZero(debtToCover)
         nonReentrant
     {
-        // need to check the health factor of the user
         uint256 startingUserHealthFactor = _healthFactor(user);
         if (startingUserHealthFactor >= MIN_HEALTH_FACTOR) {
             revert DSCEngine__HealthFactorIsNotBroken();
         }
 
-        // bad user: $140 ETH -- $100 DSC
-        // debtToCover: $100 DSC
-        // $100 DSC = ?? ETH
         uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateral, debtToCover);
 
-        // 10% bonus should be given to the liquidators
         uint256 liquidationBonus = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
         uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered + liquidationBonus;
 
@@ -229,7 +224,6 @@ contract DSCEngine is ReentrancyGuard {
     function mintDsc(uint256 amountDscToMint) public moreThanZero(amountDscToMint) nonReentrant {
         s_DSCMinted[msg.sender] += amountDscToMint;
 
-        // if minted token value is more than the collateral then the process should be reverted
         _revertIfHealthFactorIsBroken(msg.sender);
 
         bool minted = i_dsc.mint(msg.sender, amountDscToMint);
@@ -304,8 +298,6 @@ contract DSCEngine is ReentrancyGuard {
      * if a user health factor goes below 1, then they can be liquidated
      */
     function _healthFactor(address user) internal view returns (uint256 healthFactor) {
-        // total DSC minted
-        // total collateral VALUE
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
         return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
     }
